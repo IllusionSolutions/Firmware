@@ -1,3 +1,4 @@
+// This #include statement was automatically added by the Particle IDE.
 #include "MQTT/MQTT.h"
 
 //#define PC_BROKER[] { 178,62,75,151 } //Change Broker accordingly
@@ -10,13 +11,45 @@ int LED = D7;
 
 String MQTT_TOPIC;
 
+//address variable for storing EEPROM 
+int addr = 0;
+
+
+struct Readings {
+  uint8_t version;
+  float field1;
+  uint16_t field2;
+  char name[10];
+};
+
+Readings data;
+
 // Callback signature for MQTT subscriptions.
 void callback(char* topic, byte* payload, unsigned int length);
+
+bool storeVal(Readings data); 
 
 void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("Command received:");
     Serial.println((char*)payload);
 };
+
+bool storeVal(Readings data)
+{
+    Readings value;
+    EEPROM.get(addr,value);
+    if(&value==0)
+    {
+        value=data;
+        addr++;
+        return true;
+        //EEPROM.put(addr, data);
+    }
+    else
+    {
+        return false;
+    }
+}
 
 // MQTT client.
 byte PC_BROKER[] { 178,62,75,151 };
@@ -50,6 +83,8 @@ void connect() {
         }
     }
 }
+
+
 
 /**
  * Docs for setup()
