@@ -18,7 +18,7 @@ FlashStorage::~FlashStorage()
 
 void FlashStorage::clearMemory()
 {
-
+    EEPROM.clear();
 }
 
 bool FlashStorage::store(Reading data)
