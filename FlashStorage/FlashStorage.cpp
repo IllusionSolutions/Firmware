@@ -33,7 +33,6 @@ bool FlashStorage::store(Reading data)
     else
     {
         Serial.println("Address full");
-        full = true;
         return false;
     }
 }
@@ -44,7 +43,7 @@ bool FlashStorage::store(float current, float voltage,float power,time_t timeOfR
   data.current=current;
   data.voltage=voltage;
   data.power=power;
-  data.timeOfReading=timeOfReading;
+  data.timeRead=timeOfReading;
   data.sequence=sequence;
   
     if(!full())
@@ -57,7 +56,6 @@ bool FlashStorage::store(float current, float voltage,float power,time_t timeOfR
     else
     {
         Serial.println("Address full");
-        full = true;
         return false;
     }
 }
