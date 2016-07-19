@@ -1,5 +1,5 @@
-#include "MQTT.h"
-#include "FlashStorage.h"
+#include "MQTT/MQTT.h"
+#include "FlashStorage/FlashStorage.h"
 
 //#define PC_BROKER[] { 178,62,75,151 } //Change Broker accordingly
 #define PC_DEVICE_ID System.deviceID() //Declare this in setup
