@@ -119,6 +119,25 @@ bool FlashStorage::full()
   return true;
 }
 
+FlashStorage::Reading FlashStorage::dequeue()
+{
+  Reading temp;
+
+  size_t size = sizeof(temp);
+  int size_int = static_cast<int>(size);
+
+  if(last_address != front_address)
+  {
+    EEPROM.get(front_address, temp);
+    front_address = front_address + size_int + 1;
+  }
+  else
+  {
+    temp.sequence = -1;
+  }
+  return temp;
+}
+
 /*bool storeVal(Readings data)
 {
     if(EEPROM.read(addr) == 255)
