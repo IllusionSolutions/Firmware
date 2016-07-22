@@ -69,6 +69,21 @@ bool FlashStorage::store(float current, float voltage,float power,time_t timeOfR
 FlashStorage::Reading FlashStorage::getLast()
 {
   Reading temp;
+
+  size_t size = sizeof(temp);
+  int size_int = static_cast<int>(size);
+  int previous_address;
+
+  if(last_address != 0)
+  {
+    previous_address = last_address - 1 - size;
+    EEPROM.get(previous_address, temp);
+  }
+  else
+  {
+      temp.sequence = -1;
+  }
+
   return temp;
 }
 
