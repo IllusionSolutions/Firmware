@@ -19,6 +19,8 @@ FlashStorage::~FlashStorage()
 void FlashStorage::clearMemory()
 {
     EEPROM.clear();
+    last_address = 0;
+    front_address = 0;
 }
 
 bool FlashStorage::store(Reading data)
