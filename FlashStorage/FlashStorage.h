@@ -17,6 +17,7 @@ class FlashStorage {
     int last_address; /*!< The last address which was used to store the readings. */
     size_t lengthOfMemory; /*!< The length of the entire EEPROM. */
     bool isFull; /*!< Checks if the EEPROM is full. */
+    int front_address; /*!< The next address in the queue. */
 
   public:
 
@@ -76,6 +77,12 @@ class FlashStorage {
       \return -1 if the EEPROM is empty, address as an int indicating the position of the last stored object.
     */
     int hasData();
+
+    //! A method which returns the next object stored in EEPROM, from the beginning.
+    /*!
+        \return Returns a struct of type Reading.
+    */
+    Reading dequeue();
 };
 
 #endif
