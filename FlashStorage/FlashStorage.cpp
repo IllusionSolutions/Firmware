@@ -89,7 +89,21 @@ FlashStorage::Reading FlashStorage::getLast()
 
 int FlashStorage::hasData()
 {
-  return -1;
+  int length = (int) EEPROM.length() - 1;
+  int start = 0;
+  int address = -1;
+  uint8_t value;
+
+  while(start < length)
+  {
+    EEPROM.get(start, value);
+    if (value != 0xFF)
+    {
+      address = start;
+    }
+    start = start + 1;
+  }
+  return address;
 }
 
 bool FlashStorage::full()
