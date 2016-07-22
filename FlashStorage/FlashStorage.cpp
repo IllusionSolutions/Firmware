@@ -54,7 +54,9 @@ bool FlashStorage::store(float current, float voltage,float power,time_t timeOfR
     {
         Serial.println("Attempting to store");
         EEPROM.put(last_address, data);
-        last_address = last_address + sizeof(data);
+        size_t size = sizeof(data);
+        int size_int = static_cast<int>(size);
+        last_address = last_address + size_int + 1;
         return true;
     }
     else
