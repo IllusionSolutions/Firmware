@@ -108,7 +108,15 @@ int FlashStorage::hasData()
 
 bool FlashStorage::full()
 {
-  return false;
+  size_t size = sizeof(Reading);
+  int size_int = static_cast<int>(size);
+  int length = (int) EEPROM.length() - 1;
+
+  if ((length - size) > last_address)
+  {
+    return false;
+  }
+  return true;
 }
 
 /*bool storeVal(Readings data)
