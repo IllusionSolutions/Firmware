@@ -17,7 +17,7 @@ float kWh = 0.000; /*!< Stores how many kiloWatt hours have been measured. */
 float kW = 0.000; /*!< Stores how many kiloWatts have been measured. */
 float I = 0.000; /*!< Stores how many amperes have been measured. */
 float PF = 1; /*!< Stores the power factor of the system. By default it is 1. */
-float V = 240; /*!< Stores the input voltage in the system. By default it is 240 V. */
+float V = 230; /*!< Stores the input voltage in the system. By default it is 230 V. */
 float price = 0; /*!< Stores the calculated price. */
 float kWh_price = 117.86; /*!< Stores the current price per kiloWatt hour. */
 time_t timeStarted; /*!< Stores the time when the device was started. */
@@ -27,7 +27,6 @@ FlashStorage storage; /*!< An object of the FlashStorage class which is used to 
 
 volatile long pulseCount = 0; /*!< Stores the number of pulses measured. */
 
-int test_count = 0;
 int i = 0;
 
 // Signature for the pulseInt function.
@@ -198,7 +197,6 @@ void pulseInt()
   if(digitalRead(sensor) == HIGH)
   {
     runtime = getTime();
-    Serial.println(runtime);
     pulseCount++;
     kWh = pulseCount * 0.001; // Wh. Watt hours.
     Serial.print(kWh);
@@ -251,6 +249,7 @@ void setup()
 
     relayOn = true;
     Particle.function("relayToggle", toggleRelay);
+    Particle.variable("relayStatus", relayOn);
 
     Time.zone(+2);
 
@@ -260,7 +259,7 @@ void setup()
     }
 
     MQTT_TOPIC = "powercloud";
-    Serial.println("Hi, I'm Muriel, what's your name?");
+    Serial.println("Welcome to the PowerCloud Particle device.");
 
     timeStarted = Time.now();
     delay(5000);
@@ -298,6 +297,8 @@ void loop()
     {
       Serial.println("Storing data.");
       storage.store(reading);
+      client.loop();
+      Particle.process();
     }
     else if (client.isConnected())
     {
@@ -305,7 +306,6 @@ void loop()
       Serial.println("Sending data.");
       if (storage.hasData() != -1)
       {
-        Serial.println("Point 1");
         FlashStorage::Reading retrieved = storage.dequeue();
 
         while(retrieved.sequence != -1)
