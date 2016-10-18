@@ -1,9 +1,10 @@
 #include "MQTT.h"
 #include "FlashStorage.h"
+#include "math.h"
 
 SYSTEM_MODE(AUTOMATIC);
 
-//#define PC_BROKER[] { 178,62,75,151 } //Change Broker accordingly
+//#define PC_BROKER[] { 178,62,44,11 } //Change Broker accordingly
 #define PC_DEVICE_ID System.deviceID() //Declare this in setup
 #define PC_ACCESS_KEY "" //Leave blank for now
 #define PC_ACCESS_SECRET "" //Leave blank for now
@@ -11,6 +12,7 @@ SYSTEM_MODE(AUTOMATIC);
 // Declarations.
 int sensor = D7; /*!< The pin on which the sensor is connected. */
 int relay1 = D0; /*!< The pin on which the relay is connected. */
+int analogPin = A0; /*!< The pin which is used for ADC input. */
 bool relayOn = true; /*!< Stores the state of the relay (on or off). */
 float runtime = 0; /*!< Stores the how long the device has been running. */
 float kWh = 0.000; /*!< Stores how many kiloWatt hours have been measured. */
@@ -20,14 +22,19 @@ float PF = 1; /*!< Stores the power factor of the system. By default it is 1. */
 float V = 230; /*!< Stores the input voltage in the system. By default it is 230 V. */
 float price = 0; /*!< Stores the calculated price. */
 float kWh_price = 117.86; /*!< Stores the current price per kiloWatt hour. */
+int analogValue = 0; /*!< Stores the value read from the analog pin. */
+int sequenceNumber = 0; /*!< Stores the sequence number of each reading. */
 time_t timeStarted; /*!< Stores the time when the device was started. */
 time_t currentTime; /*!< Stores the current time at a point of a reading. */
 int readingCounter = 1; /*!< Stores the number of readings taken. */
+int currentCount = 0; /*!< Tracks the number of current measurements currently taken. */
+float sumI = 0; /*!< Stores the aggregated sum of the current values. */
+int ADC_BITS = 12; /*!< Stores the number of bits available on the ADC. */
+int ADC_COUNTS = (1<<ADC_BITS); /*!< Stores the number of counts used by the ADC. */
+float offsetI = ADC_COUNTS>>1; /*!< Stores the offset used to calculate current. */
 FlashStorage storage; /*!< An object of the FlashStorage class which is used to access EEPROM. */
 
 volatile long pulseCount = 0; /*!< Stores the number of pulses measured. */
-
-int i = 0;
 
 // Signature for the pulseInt function.
 void pulseInt(void);
@@ -42,7 +49,7 @@ uint16_t messageid; /*!< Stores the returned message ID from MQTT. */
 int messageCounter = 0; /*!< Stores the number of messages sent during a send cycle. */
 
 // MQTT client.
-byte PC_BROKER[] { 178,62,75,151 }; /*!< Stores the IP address of the MQTT broker. */
+byte PC_BROKER[] { 178,62,44,11 }; /*!< Stores the IP address of the MQTT broker. */
 MQTT client(PC_BROKER, 1883, callback);
 
 //! A method which is called upon receiving a reply from the MQTT broker.
@@ -202,12 +209,36 @@ void pulseInt()
     Serial.print(kWh);
     Serial.print(" kWh ");
     kW = kWh/runtime;
-    I = (kW * 1000)/(PF * V);
     Serial.print(I);
     Serial.print(" Amps ");
     price = (kWh * kWh_price)/100;
     Serial.print(price);
     Serial.println(" Rand ");
+  }
+}
+
+//! A method which is used to read values from the analog pin (A0), and converts these values into their corresponding current values.
+/*!
+*/
+void getCurrent()
+{
+  analogValue = analogRead(analogPin);
+
+  offsetI = (offsetI + (analogValue - offsetI) / 4096);
+  float filteredI = analogValue - offsetI;
+
+  float sqI = filteredI * filteredI;
+  sumI += sqI;
+  currentCount++;
+
+  if (currentCount == 500)
+  {
+    double I_RATIO = 53.78 * (3.3/ADC_COUNTS);
+    double Irms = I_RATIO * sqrt(sumI / currentCount);
+    Irms = Irms + (Irms * 0.05);
+    I = Irms;
+    sumI = 0;
+    currentCount = 0;
   }
 }
 
@@ -246,6 +277,9 @@ void setup()
     digitalWrite(relay1, HIGH);
     pinMode(sensor, INPUT_PULLDOWN);
     attachInterrupt(sensor, pulseInt, RISING);
+    setADCSampleTime(ADC_SampleTime_480Cycles);
+
+    //pinMode(analogPin, INPUT);
 
     relayOn = true;
     Particle.function("relayToggle", toggleRelay);
@@ -277,6 +311,8 @@ void loop()
   String output;
   uint16_t messageid;
 
+  getCurrent();
+
   if ((Time.now() - timeStarted) == (60 * readingCounter))
   {
     Serial.println("Getting a reading.");
@@ -287,7 +323,7 @@ void loop()
     reading.voltage = V;
     reading.power = kWh;
     reading.timeRead = Time.now();
-    reading.sequence = ++i;
+    reading.sequence = ++sequenceNumber;
 
     attemptConnect();
 
