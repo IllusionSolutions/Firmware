@@ -13,6 +13,7 @@ SYSTEM_MODE(AUTOMATIC);
 int sensor = D7; /*!< The pin on which the sensor is connected. */
 int relay1 = D0; /*!< The pin on which the relay is connected. */
 int analogPin = A0; /*!< The pin which is used for ADC input. */
+int period = 0; /*!< Stores the desired delay between readings, in seconds. */
 bool relayOn = true; /*!< Stores the state of the relay (on or off). */
 float runtime = 0; /*!< Stores the how long the device has been running. */
 float kWh = 0.000; /*!< Stores how many kiloWatt hours have been measured. */
@@ -28,6 +29,7 @@ time_t timeStarted; /*!< Stores the time when the device was started. */
 time_t currentTime; /*!< Stores the current time at a point of a reading. */
 int readingCounter = 1; /*!< Stores the number of readings taken. */
 int currentCount = 0; /*!< Tracks the number of current measurements currently taken. */
+double upperThreshold = 0; /*!< Stores the threshold current limit which will switch the device off. */
 float sumI = 0; /*!< Stores the aggregated sum of the current values. */
 int ADC_BITS = 12; /*!< Stores the number of bits available on the ADC. */
 int ADC_COUNTS = (1<<ADC_BITS); /*!< Stores the number of counts used by the ADC. */
@@ -242,26 +244,79 @@ void getCurrent()
   }
 }
 
-//! A method used to toggle the relay on and off.
+//! An exposed method used to toggle the relay on or off via the cloud.
 /*!
   \param input A string which contains the identity of the user toggling the relay.
   \return An integer representing the success state of the cloud function.
 */
 int toggleRelay(String input)
 {
+  String toggleMessage;
+  uint16_t messageid;
+  time_t toggleTime = Time.now();
+
   if(relayOn == true)
   {
     relayOn = false;
     digitalWrite(relay1, LOW);
-    Serial.println("Relay toggled off by " + input);
+    //Serial.println("Relay toggled off by " + input);
+    toggleMessage = String("{\"user\":") + input + String(",\"status\":") + String(relayOn) + String(",\"time\":") + String(toggleTime) + String("}");
+    Serial.println(toggleMessage);
+    client.publish(MQTT_TOPIC, toggleMessage, MQTT::QOS1, &messageid);
   }
   else
   {
     relayOn = true;
     digitalWrite(relay1, HIGH);
-    Serial.println("Relay toggled on by " + input);
+    //Serial.println("Relay toggled on by " + input);
+    toggleMessage = String("{\"user\":") + input + String(",\"status\":") + String(relayOn) + String(",\"time\":") + String(toggleTime) + String("}");
+    Serial.println(toggleMessage);
+    client.publish(MQTT_TOPIC, toggleMessage, MQTT::QOS1, &messageid);
   }
 }
+
+//! An exposed method which sets the upper current threshold via the cloud. Default and maximum is 8.00 A.
+/*!
+  \param input A string which contains the desired value of the threshold.
+  \return An integer representing the success state of the cloud function.
+*/
+int setThreshold(String input)
+{
+  double inputThreshold = (double) input.toFloat();
+
+  if (inputThreshold > 8)
+  {
+    upperThreshold = 8.00;
+    Serial.println("Upper threshold set to " + String(upperThreshold));
+  }
+  else
+  {
+    upperThreshold = inputThreshold;
+    Serial.println("Upper threshold set to " + String(upperThreshold));
+  }
+}
+
+//! An exposed method which sets the desired delay between readings in seconds. Default is 60 seconds.
+/*!
+  \param input A string which contains the desired value of the delay.
+  \return An integer representing the success state of the cloud function.
+*/
+int setPeriod(String input)
+{
+  int inputPeriod = input.toInt();
+
+  if (inputPeriod < 10)
+  {
+    period = 10;
+    Serial.println("Period set to: " + String(period));
+  }
+  else
+  {
+    period = inputPeriod;
+    Serial.println("Period set to: " + String(period));
+  }
+}
+
 /**
  * Docs for setup()
  **/
@@ -284,6 +339,14 @@ void setup()
     relayOn = true;
     Particle.function("relayToggle", toggleRelay);
     Particle.variable("relayStatus", relayOn);
+
+    upperThreshold = 8.00;
+    Particle.function("setThreshold", setThreshold);
+    Particle.variable("threshold", upperThreshold);
+
+    period = 60;
+    Particle.function("setPeriod", setPeriod);
+    Particle.variable("period", period);
 
     Time.zone(+2);
 
@@ -313,7 +376,12 @@ void loop()
 
   getCurrent();
 
-  if ((Time.now() - timeStarted) == (60 * readingCounter))
+  if ((I > upperThreshold) && (relayOn == true))
+  {
+    toggleRelay("Device threshold");
+  }
+
+  if ((Time.now() - timeStarted) == (period * readingCounter))
   {
     Serial.println("Getting a reading.");
 
