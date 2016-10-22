@@ -307,6 +307,8 @@ int toggleMeasuring(String input)
   else
   {
     measuringOn = true;
+    timeStarted = Time.now();
+    readingCounter = 1;
     notify(input, "Device is now authorized.", toggleTime);
   }
 }
