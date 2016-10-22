@@ -14,7 +14,9 @@ int sensor = D7; /*!< The pin on which the sensor is connected. */
 int relay1 = D0; /*!< The pin on which the relay is connected. */
 int analogPin = A0; /*!< The pin which is used for ADC input. */
 int period = 0; /*!< Stores the desired delay between readings, in seconds. */
+String realTimeMessage = "{}"; /*!< Stores the real-time message to be sent to the web application. */
 bool relayOn = true; /*!< Stores the state of the relay (on or off). */
+bool measuringOn = true; /*!< Stores a state indicating whether the device is measuring or not. */
 float runtime = 0; /*!< Stores the how long the device has been running. */
 float kWh = 0.000; /*!< Stores how many kiloWatt hours have been measured. */
 float kW = 0.000; /*!< Stores how many kiloWatts have been measured. */
@@ -46,6 +48,7 @@ void callback(char* topic, byte* payload, unsigned int length);
 
 // MQTT variables
 String MQTT_TOPIC; /*!< Stores the topic used to identify messages in MQTT. */
+String NOTIFY_TOPIC; /*!< Stores the topic used to identify notifications in MQTT. */
 uint16_t qos2messageid = 0; /*!< Stores the QOS message for MQTT. */
 uint16_t messageid; /*!< Stores the returned message ID from MQTT. */
 int messageCounter = 0; /*!< Stores the number of messages sent during a send cycle. */
@@ -138,7 +141,7 @@ void attemptConnect()
 /*!
   \param s A string which stores the message to be sent to the MQTT broker.
 */
-void sendData(String s)
+void sendData(String s, String topic)
 {
   bool sent = false;
 
@@ -146,7 +149,7 @@ void sendData(String s)
   {
     if (client.isConnected())
     {
-      client.publish(MQTT_TOPIC, s, MQTT::QOS1, &messageid);
+      client.publish(topic, s, MQTT::QOS1, &messageid);
       messageCounter = messageCounter + 1;
       Serial.println("YES. " + String(messageCounter) + " . " + String(messageid));
       sent = true;
@@ -163,7 +166,7 @@ void sendData(String s)
 
       messageCounter = 0;
 
-      client.publish(MQTT_TOPIC, s, MQTT::QOS1, &messageid);
+      client.publish(topic, s, MQTT::QOS1, &messageid);
       messageCounter = messageCounter + 1;
       Serial.println("NO. " + String(messageCounter) + " . " + String(messageid));
       sent = true;
@@ -208,14 +211,17 @@ void pulseInt()
     runtime = getTime();
     pulseCount++;
     kWh = pulseCount * 0.001; // Wh. Watt hours.
+    kW = kWh/runtime;
+    price = (kWh * kWh_price)/100;
+
+    /*
     Serial.print(kWh);
     Serial.print(" kWh ");
-    kW = kWh/runtime;
     Serial.print(I);
     Serial.print(" Amps ");
-    price = (kWh * kWh_price)/100;
     Serial.print(price);
     Serial.println(" Rand ");
+    */
   }
 }
 
@@ -244,6 +250,23 @@ void getCurrent()
   }
 }
 
+//! A method used to send notifications to the application server.
+/*!
+  \param user A string containing the identification of the user causing a notification.
+  \param status A string containing a description of the event which occured.
+  \param timeOfEvent A time_t containing the epoch time when the event occured.
+*/
+void notify(String user, String status, time_t timeOfEvent)
+{
+  uint16_t messageid;
+  String message = String("{\"user\":\"") + user + String("\",\"status\":\"") + String(status) + String("\",\"time\":") + String(timeOfEvent) + String("}");
+
+  Serial.println(message);
+  sendData(message, NOTIFY_TOPIC);
+  delay(1500);
+  client.disconnect();
+}
+
 //! An exposed method used to toggle the relay on or off via the cloud.
 /*!
   \param input A string which contains the identity of the user toggling the relay.
@@ -251,27 +274,40 @@ void getCurrent()
 */
 int toggleRelay(String input)
 {
-  String toggleMessage;
-  uint16_t messageid;
   time_t toggleTime = Time.now();
 
   if(relayOn == true)
   {
     relayOn = false;
     digitalWrite(relay1, LOW);
-    //Serial.println("Relay toggled off by " + input);
-    toggleMessage = String("{\"user\":") + input + String(",\"status\":") + String(relayOn) + String(",\"time\":") + String(toggleTime) + String("}");
-    Serial.println(toggleMessage);
-    client.publish(MQTT_TOPIC, toggleMessage, MQTT::QOS1, &messageid);
+    notify(input, "Device switched off.", toggleTime);
   }
   else
   {
     relayOn = true;
     digitalWrite(relay1, HIGH);
-    //Serial.println("Relay toggled on by " + input);
-    toggleMessage = String("{\"user\":") + input + String(",\"status\":") + String(relayOn) + String(",\"time\":") + String(toggleTime) + String("}");
-    Serial.println(toggleMessage);
-    client.publish(MQTT_TOPIC, toggleMessage, MQTT::QOS1, &messageid);
+    notify(input, "Device switched on.", toggleTime);
+  }
+}
+
+//! An exposed method used to toggle whether the device is taking measurements, via the cloud.
+/*!
+  \param input A string which contains the identity of the user toggling measurements.
+  \return An integer representing the success state of the cloud function.
+*/
+int toggleMeasuring(String input)
+{
+  time_t toggleTime = Time.now();
+
+  if(measuringOn == true)
+  {
+    measuringOn = false;
+    notify(input, "Device is now unauthorized.", toggleTime);
+  }
+  else
+  {
+    measuringOn = true;
+    notify(input, "Device is now authorized.", toggleTime);
   }
 }
 
@@ -282,17 +318,40 @@ int toggleRelay(String input)
 */
 int setThreshold(String input)
 {
-  double inputThreshold = (double) input.toFloat();
+  time_t timeCalled = Time.now();
+  String username;
+  double inputThreshold;
+  int delimiter;
 
-  if (inputThreshold > 8)
+  delimiter = input.indexOf(",");
+
+  if (delimiter == -1)
   {
-    upperThreshold = 8.00;
-    Serial.println("Upper threshold set to " + String(upperThreshold));
+    Serial.println("Invalid message received: " + input);
   }
   else
   {
-    upperThreshold = inputThreshold;
-    Serial.println("Upper threshold set to " + String(upperThreshold));
+    username = input.substring(0, delimiter);
+    inputThreshold = (double) input.substring((delimiter + 1)).toFloat();
+
+    if (inputThreshold > 8)
+    {
+      upperThreshold = 8.00;
+      String status = "Upper threshold set to " + String(upperThreshold);
+      notify(username, status, timeCalled);
+    }
+    else if (inputThreshold < 0.00)
+    {
+      upperThreshold = 0.00;
+      String status = "Upper threshold set to " + String(upperThreshold);
+      notify(username, status, timeCalled);
+    }
+    else
+    {
+      upperThreshold = inputThreshold;
+      String status = "Upper threshold set to " + String(upperThreshold);
+      notify(username, status, timeCalled);
+    }
   }
 }
 
@@ -303,17 +362,46 @@ int setThreshold(String input)
 */
 int setPeriod(String input)
 {
-  int inputPeriod = input.toInt();
+  time_t timeCalled = Time.now();
+  String username;
+  int inputPeriod;
+  int delimiter;
 
-  if (inputPeriod < 10)
+  delimiter = input.indexOf(",");
+
+  if (delimiter == -1)
   {
-    period = 10;
-    Serial.println("Period set to: " + String(period));
+    Serial.println("Invalid message received: " + input);
   }
   else
   {
-    period = inputPeriod;
-    Serial.println("Period set to: " + String(period));
+    username = input.substring(0, delimiter);
+    inputPeriod = (int) input.substring((delimiter + 1)).toInt();
+
+    if (inputPeriod < 30)
+    {
+      period = 30;
+      timeStarted = Time.now();
+      readingCounter = 1;
+      String status = "Period set to: " + String(period);
+      notify(username, status, timeCalled);
+    }
+    else if (inputPeriod > 3600)
+    {
+      period = 3600;
+      timeStarted = Time.now();
+      readingCounter = 1;
+      String status = "Period set to: " + String(period);
+      notify(username, status, timeCalled);
+    }
+    else
+    {
+      period = inputPeriod;
+      timeStarted = Time.now();
+      readingCounter = 1;
+      String status = "Period set to: " + String(period);
+      notify(username, status, timeCalled);
+    }
   }
 }
 
@@ -334,8 +422,6 @@ void setup()
     attachInterrupt(sensor, pulseInt, RISING);
     setADCSampleTime(ADC_SampleTime_480Cycles);
 
-    //pinMode(analogPin, INPUT);
-
     relayOn = true;
     Particle.function("relayToggle", toggleRelay);
     Particle.variable("relayStatus", relayOn);
@@ -348,6 +434,11 @@ void setup()
     Particle.function("setPeriod", setPeriod);
     Particle.variable("period", period);
 
+    Particle.function("measureTog", toggleMeasuring);
+    Particle.variable("measuring", measuringOn);
+
+    Particle.variable("realTime", realTimeMessage);
+
     Time.zone(+2);
 
     while(!Serial.available())
@@ -356,10 +447,11 @@ void setup()
     }
 
     MQTT_TOPIC = "powercloud";
+    NOTIFY_TOPIC = "powernotify";
     Serial.println("Welcome to the PowerCloud Particle device.");
 
     timeStarted = Time.now();
-    delay(5000);
+    delay(2000);
     storage = FlashStorage();
     storage.clearMemory();
 }
@@ -381,71 +473,79 @@ void loop()
     toggleRelay("Device threshold");
   }
 
-  if ((Time.now() - timeStarted) == (period * readingCounter))
+  if (measuringOn == true)
   {
-    Serial.println("Getting a reading.");
+    realTimeMessage = String("{\"current\":") + String(I) +
+                      String(",\"power\":") + String(kWh) +
+                      String(",\"time\":") + String(Time.now()) +
+                      String("}");
 
-    readingCounter++;
-
-    reading.current = I;
-    reading.voltage = V;
-    reading.power = kWh;
-    reading.timeRead = Time.now();
-    reading.sequence = ++sequenceNumber;
-
-    attemptConnect();
-
-    delay(2000);
-
-    if (!client.isConnected())
+    if ((Time.now() - timeStarted) == (period * readingCounter))
     {
-      Serial.println("Storing data.");
-      storage.store(reading);
-      client.loop();
-      Particle.process();
-    }
-    else if (client.isConnected())
-    {
-      noInterrupts();
-      Serial.println("Sending data.");
-      if (storage.hasData() != -1)
+      Serial.println("Getting a reading.");
+
+      readingCounter++;
+
+      reading.current = I;
+      reading.voltage = V;
+      reading.power = kWh;
+      reading.timeRead = Time.now();
+      reading.sequence = ++sequenceNumber;
+
+      attemptConnect();
+
+      delay(2000);
+
+      if (!client.isConnected())
       {
-        FlashStorage::Reading retrieved = storage.dequeue();
-
-        while(retrieved.sequence != -1)
-        {
-          output = String("{\"current\":") + String(retrieved.current) +
-                   String(",\"voltage\":") + String(retrieved.voltage) +
-                   String(",\"power\":") + String(retrieved.power) +
-                   String(",\"time\":") + String(retrieved.timeRead) +
-                   String("}");
-
-          Serial.println(output);
-
-          sendData(output);
-          delay(5000);
-
-          retrieved = storage.dequeue();
-
-          client.loop();
-          Particle.process();
-        }
-        storage.clearMemory();
+        Serial.println("Storing data.");
+        storage.store(reading);
+        client.loop();
+        Particle.process();
       }
-      output = String("{\"current\":") + String(reading.current) +
-               String(",\"voltage\":") + String(reading.voltage) +
-               String(",\"power\":") + String(reading.power) +
-               String(",\"time\":") + String(reading.timeRead) +
-               String("}");
+      else if (client.isConnected())
+      {
+        noInterrupts();
+        Serial.println("Sending data.");
+        if (storage.hasData() != -1)
+        {
+          FlashStorage::Reading retrieved = storage.dequeue();
 
-      Serial.println(output);
+          while(retrieved.sequence != -1)
+          {
+            output = String("{\"current\":") + String(retrieved.current) +
+                     String(",\"voltage\":") + String(retrieved.voltage) +
+                     String(",\"power\":") + String(retrieved.power) +
+                     String(",\"time\":") + String(retrieved.timeRead) +
+                     String("}");
 
-      sendData(output);
-      delay(5000);
+            Serial.println(output);
 
-      messageCounter = 0;
-      client.disconnect();
-      interrupts();
+            sendData(output, MQTT_TOPIC);
+            delay(5000);
+
+            retrieved = storage.dequeue();
+
+            client.loop();
+            Particle.process();
+          }
+          storage.clearMemory();
+        }
+        output = String("{\"current\":") + String(reading.current) +
+                 String(",\"voltage\":") + String(reading.voltage) +
+                 String(",\"power\":") + String(reading.power) +
+                 String(",\"time\":") + String(reading.timeRead) +
+                 String("}");
+
+        Serial.println(output);
+
+        sendData(output, MQTT_TOPIC);
+        delay(5000);
+
+        messageCounter = 0;
+        client.disconnect();
+        interrupts();
+      }
     }
   }
 }
