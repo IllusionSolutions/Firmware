@@ -94,7 +94,6 @@ void qoscallback(unsigned int messageid)
 void connect() {
     while(!client.isConnected())
     {
-        //Connect to the broker
         Serial.print("Attempting to Connect.");
         client.connect( PC_DEVICE_ID );
         if(client.isConnected())
@@ -213,15 +212,6 @@ void pulseInt()
     kWh = pulseCount * 0.001; // Wh. Watt hours.
     kW = kWh/runtime;
     price = (kWh * kWh_price)/100;
-
-    /*
-    Serial.print(kWh);
-    Serial.print(" kWh ");
-    Serial.print(I);
-    Serial.print(" Amps ");
-    Serial.print(price);
-    Serial.println(" Rand ");
-    */
   }
 }
 
@@ -262,9 +252,14 @@ void notify(String user, String status, time_t timeOfEvent)
   String message = String("{\"user\":\"") + user + String("\",\"status\":\"") + String(status) + String("\",\"time\":") + String(timeOfEvent) + String("}");
 
   Serial.println(message);
-  sendData(message, NOTIFY_TOPIC);
-  delay(1500);
-  client.disconnect();
+  attemptConnect();
+  delay(2000);
+  if (client.isConnected())
+  {
+    sendData(message, NOTIFY_TOPIC);
+    delay(2000);
+    client.disconnect();
+  }
 }
 
 //! An exposed method used to toggle the relay on or off via the cloud.
@@ -432,7 +427,7 @@ void setup()
     Particle.function("setThreshold", setThreshold);
     Particle.variable("threshold", upperThreshold);
 
-    period = 60;
+    period = 30;
     Particle.function("setPeriod", setPeriod);
     Particle.variable("period", period);
 
@@ -443,10 +438,12 @@ void setup()
 
     Time.zone(+2);
 
+/*
     while(!Serial.available())
     {
       Particle.process();
     }
+*/
 
     MQTT_TOPIC = "powercloud";
     NOTIFY_TOPIC = "powernotify";
